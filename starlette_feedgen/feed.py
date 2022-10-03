@@ -20,6 +20,7 @@ class FeedEndpoint(HTTPEndpoint, ABC):
     domain: Optional[str] = None
     link: str = "/"
 
+    # TODO сделать async?
     @abstractmethod
     def get_items(self) -> Iterable:
         ...
@@ -36,7 +37,7 @@ class FeedEndpoint(HTTPEndpoint, ABC):
                 timegm(feed_generator.latest_post_date().utctimetuple())
             )
         feed = BytesIO()
-        feed_generator.write(feed, encoding="utf-8")
+        await feed_generator.write(feed, encoding="utf-8")
         feed.seek(0)
         return StreamingResponse(feed, media_type=feed_generator.content_type, headers=headers)
 
@@ -64,6 +65,7 @@ class FeedEndpoint(HTTPEndpoint, ABC):
         )
         return [enc]
 
+    # TODO make async/await if attr awaitable
     def _get_dynamic_attr(self, attname: str, obj: Any, default: Any = None) -> Any:
         attr = getattr(self, attname, default)
         if not callable(attr):
@@ -87,7 +89,7 @@ class FeedEndpoint(HTTPEndpoint, ABC):
         """
         return {}
 
-    def item_extra_kwargs(self, item: Any) -> Dict[str, Any]:
+    async def item_extra_kwargs(self, item: Any) -> Dict[str, Any]:
         """
         Return an extra keyword arguments dictionary that is used with
         the `add_item` call of the feed generator.
@@ -103,6 +105,9 @@ class FeedEndpoint(HTTPEndpoint, ABC):
         request_is_secure = request.url.is_secure
         link = add_domain(self.domain, link, request_is_secure)
 
+        feed_url = await self._get_dynamic_attr("feed_url", obj)
+        feed_extra_kwargs = await self.feed_extra_kwargs(obj)
+
         feed = self.feed_type(
             title=self._get_dynamic_attr("title", obj),
             subtitle=self._get_dynamic_attr("subtitle", obj),
@@ -110,10 +115,7 @@ class FeedEndpoint(HTTPEndpoint, ABC):
             description=self._get_dynamic_attr("description", obj),
             language=self.language,
             feed_url=add_domain(
-                self.domain,
-                self._get_dynamic_attr("feed_url", obj) or request.url.path,
-                request_is_secure,
-            ),
+                self.domain, feed_url or request.url.path, request_is_secure),
             author_name=self._get_dynamic_attr("author_name", obj),
             author_link=self._get_dynamic_attr("author_link", obj),
             author_email=self._get_dynamic_attr("author_email", obj),
@@ -121,9 +123,10 @@ class FeedEndpoint(HTTPEndpoint, ABC):
             feed_copyright=self._get_dynamic_attr("feed_copyright", obj),
             feed_guid=self._get_dynamic_attr("feed_guid", obj),
             ttl=self._get_dynamic_attr("ttl", obj),
-            **self.feed_extra_kwargs(obj),
+            **feed_extra_kwargs,
         )
 
+        # TODO по идее все вызовы должны стать корутинами, сократить код?
         items = await run_async_or_thread(self.get_items)
         if isinstance(items, AsyncIterable):
             async for item in items:
