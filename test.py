@@ -1,3 +1,4 @@
+import aiofiles
 import asyncio
 import html
 import re
@@ -10,24 +11,12 @@ from starlette_feedgen.utils import SimplerXMLGenerator, rfc2822_date
 import funcy
 import uvicorn
 
+from test_items import articles
 
 app = Starlette()
 
 
-class AsyncFeed(FeedEndpoint, ABC):
-    limit: int = 100
-    offset: int = 0
-
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        self.init_tasks = []
-
-    async def get(self, request):
-        await asyncio.gather(*self.init_tasks)
-        response = await super().get(request)
-        return response
-
-
+# Feed generators
 class SXG(SimplerXMLGenerator):
     async def addQuickElementCDATA(
         self, name: str, content: str = None, attrs: dict = None
@@ -47,8 +36,8 @@ class ExtendedFeed(Rss201rev2Feed):
         await handler.startElement('rss', self.rss_attributes())
         await handler.startElement('channel', self.root_attributes())
         await self.add_root_elements(handler)
-        # TODO uncomment
-        # await self.cache_items(handler, encoding)
+        await self.cache_items(handler, encoding)
+        # await self.write_items(handler)
         await self.endChannelElement(handler)
         await handler.endElement('rss')
 
@@ -57,18 +46,23 @@ class ExtendedFeed(Rss201rev2Feed):
             await self.cache_item(item, handler, encoding)
 
     async def cache_item(self, item: dict, handler: SXG, encoding: str) -> None:
-        # TODO change to async buffer
-        buf = BytesIO()
-        cache_handler = SXG(buf, encoding)
+        async with aiofiles.tempfile.TemporaryFile("w+", newline="\n", encoding=encoding) as buf:
+            cache_handler = SXG(buf, encoding)
 
-        await cache_handler.startElement('item', self.item_attributes(item))
-        await self.add_item_elements(cache_handler, item)
-        await cache_handler.endElement('item')
+            await cache_handler.startElement('item', self.item_attributes(item))
+            await self.add_item_elements(cache_handler, item)
+            await cache_handler.endElement('item')
 
-        await opis_api.upload(
-            file=buf, namespace=self.feed['name'], filename=f"{item['slug']}.xml"
-        )
-        await handler._write(buf.getvalue().decode(encoding))
+            await buf.seek(0)
+            string_result = await buf.read()
+            bytes_result = string_result.encode(encoding)
+            print(bytes_result)
+            # await opis_api.upload(
+            #     file=buf, namespace=self.feed['name'], filename=f"{item['slug']}.xml"
+            # )
+
+            await buf.seek(0)
+            await handler._write(await buf.read())  # из асинхронного буфера получаем строку методом read()
 
     def rss_attributes(self) -> dict:
         attrs: dict = super().rss_attributes()
@@ -81,12 +75,70 @@ class ExtendedFeed(Rss201rev2Feed):
         return attrs
 
 
+class YandexTurboRSSFeed(ExtendedFeed):
+    def rss_attributes(self) -> dict:
+        return {
+            'version': self._version,
+            'xmlns:yandex': 'http://news.yandex.ru',
+            'xmlns:turbo': 'http://turbo.yandex.ru',
+        }
+
+    # сделал синхронным
+    def item_attributes(self, item: dict) -> dict:
+        return {'turbo': 'true'}
+
+    # сделал синхронным
+    def root_attributes(self) -> dict:
+        return {}
+
+    async def add_root_elements(self, handler: SXG) -> None:
+        await handler.addQuickElement('title', self.feed['title'])
+        await handler.addQuickElement('link', self.feed['link'])
+        await handler.addQuickElement('description', self.feed['description'])
+        await handler.addQuickElement(
+            'yandex:analytics',
+            attrs={'type': 'Yandex', 'id': ''},
+        )
+        await handler.addQuickElement(
+            'turbo:analytics',
+            attrs={'type': 'Google', 'id': ''},
+        )
+
+    async def add_item_elements(self, handler: SXG, item: dict) -> None:
+        await handler.addQuickElement('turbo:extendedHtml', 'true')
+        await handler.addQuickElement('link', item['link'])
+        await handler.addQuickElement('author', item.get('author_name'))
+
+        for category in item['categories']:
+            await handler.addQuickElement('category', category)
+
+        if item['pubdate'] is not None:
+            await handler.addQuickElement('pubDate', rfc2822_date(item['pubdate']))
+
+        await handler.addQuickElementCDATA('turbo:content', item['content'])
+
+
+# Feed Endpoints
+class AsyncFeed(FeedEndpoint, ABC):
+    limit: int = 100
+    offset: int = 0
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.init_tasks = []
+
+    async def get(self, request):
+        await asyncio.gather(*self.init_tasks)
+        response = await super().get(request)
+        return response
+
+
 class GenericFeed(AsyncFeed):
     author_email: str = 't@t.ru'
     author_name: str = 'Т-Ж'
     categories: list[str] = ['Финансы']
     description: str = 'sdfew'
-    domain: str = 'https://test.ru'
+    domain: str = 'test.ru'
     feed_type: Rss201rev2Feed = ExtendedFeed
     item_guid_is_permalink: bool = False
     language: str = 'ru-RU'
@@ -111,9 +163,9 @@ class GenericFeed(AsyncFeed):
     ]
 
     async def get_items(self):
-        return [{'id': 1, 'title': 'ololo'}, {'id': 2, 'title': 'ololo'}]
+        return articles
 
-    async def feed_url(self) -> str:
+    def feed_url(self) -> str:
         return 'some-url'
 
     async def feed_extra_kwargs(self, obj) -> dict:
@@ -156,7 +208,7 @@ class GenericFeed(AsyncFeed):
         return item.date_modified
 
     async def render_distilled_content(self, item, distilled) -> str:
-        content = 'odjigfjkw'
+        content = 'Distilled content'
         # flavor = '' if self.name == 'default' else self.name
         # try:
         #     content = await minerva_api.render(
@@ -172,47 +224,6 @@ class GenericFeed(AsyncFeed):
         return content
 
 
-class YandexTurboRSSFeed(ExtendedFeed):
-    def rss_attributes(self) -> dict:
-        return {
-            'version': self._version,
-            'xmlns:yandex': 'http://news.yandex.ru',
-            'xmlns:turbo': 'http://turbo.yandex.ru',
-        }
-
-    async def item_attributes(self, item: dict) -> dict:
-        return {'turbo': 'true'}
-
-    async def root_attributes(self) -> dict:
-        return {}
-
-    async def add_root_elements(self, handler: SXG) -> None:
-        await handler.addQuickElement('title', self.feed['title'])
-        await handler.addQuickElement('link', self.feed['link'])
-        await handler.addQuickElement('description', self.feed['description'])
-        await handler.addQuickElement(
-            'yandex:analytics',
-            attrs={'type': 'Yandex', 'id': ''},
-        )
-        await handler.addQuickElement(
-            'turbo:analytics',
-            attrs={'type': 'Google', 'id': ''},
-        )
-
-    async def add_item_elements(self, handler: SXG, item: dict) -> None:
-        await handler.addQuickElement('turbo:extendedHtml', 'true')
-        await handler.addQuickElement('link', item['link'])
-        await handler.addQuickElement('author', item.get('author_name'))
-
-        for category in item['categories']:
-            await handler.addQuickElement('category', category)
-
-        if item['pubdate'] is not None:
-            await handler.addQuickElement('pubDate', rfc2822_date(item['pubdate']))
-
-        await handler.addQuickElementCDATA('turbo:content', item['content'])
-
-
 @app.route('/feed')
 class YandexTurboFeed(GenericFeed):
     feed_type = YandexTurboRSSFeed
@@ -225,7 +236,7 @@ class YandexTurboFeed(GenericFeed):
     async def item_extra_kwargs(self, item) -> dict:
         item_extra_kwargs = await super().item_extra_kwargs(item)
 
-        content = self.render_header(item)
+        content = await self.render_header(item)
         content += ''.join(
             await asyncio.gather(
                 self.render_content(item),

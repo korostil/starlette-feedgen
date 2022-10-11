@@ -5,7 +5,7 @@ from asyncio.coroutines import iscoroutinefunction
 from email.utils import formatdate
 from typing import Any, Callable, Union
 from urllib.parse import quote, urlparse
-from xml.sax.saxutils import XMLGenerator, quoteattr, escape, _gettextwriter
+from xml.sax.saxutils import quoteattr, escape
 
 from starlette.concurrency import run_in_threadpool
 
@@ -17,7 +17,12 @@ class UnserializableContentError(ValueError):
 class AsyncXMLGenerator:
     def __init__(self, out, encoding="iso-8859-1", short_empty_elements=False):
         self._locator = None
-        out = _gettextwriter(out, encoding)
+        # Пояснялка по функции _get _gettextwriter(out, encoding)
+        # при вызове этой функции возвращается TextIOWrapper, нам этот вызов не особо нужен,
+        # потому что если мы используем aiofiles, out представляет собой AsyncTextIOWrapper, однако
+        # нам не хватает некоторых параметров конфигурации, которые передавались в возвращаемом объекте
+        # _gettextwriter, а именно encoding, newline. Их мы прокидываем вручную в feed.py
+        # out = _gettextwriter(out, encoding)
         self._write = out.write
         self._flush = out.flush
         self._ns_contexts = [{}]  # contains uri -> prefix dicts
@@ -143,7 +148,7 @@ class SimplerXMLGenerator(AsyncXMLGenerator):
             # Fail loudly when content has control chars (unsupported in XML 1.0)
             # See http://www.w3.org/International/questions/qa-controls
             raise UnserializableContentError("Control characters are not supported in XML 1.0")
-        await XMLGenerator.characters(self, content)
+        await super().characters(content)
 
 
 def iri_to_uri(iri: str) -> str:
@@ -227,7 +232,7 @@ def add_domain(domain: str, url: str, secure: bool = False) -> str:
     return url
 
 
-async def run_async_or_thread(handler: Callable, *args: Any, **kwargs: Any) -> Any:
-    if iscoroutinefunction(handler):
-        return await handler(*args, **kwargs)
-    return await run_in_threadpool(handler, *args, **kwargs)
+# async def run_async_or_thread(handler: Callable, *args: Any, **kwargs: Any) -> Any:
+#     if iscoroutinefunction(handler):
+#         return await handler(*args, **kwargs)
+#     return await run_in_threadpool(handler, *args, **kwargs)

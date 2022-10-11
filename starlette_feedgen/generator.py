@@ -132,7 +132,7 @@ class SyndicationFeed:
         """
         return {}
 
-    def add_root_elements(self, handler):
+    async def add_root_elements(self, handler):
         """
         Add elements in the root (i.e. feed/channel) element. Called
         from write().
@@ -158,7 +158,8 @@ class SyndicationFeed:
         """
         raise NotImplementedError("subclasses of SyndicationFeed must provide a write() method")
 
-    # TODO test function closely
+    # считаю что функцию надо выпилить: она нигде в Ютурне не используется
+    # и с ailfiles реализовать такую логику будет проблематично
     async def writeString(self, encoding):
         """
         Return the feed in the given encoding as a string.
