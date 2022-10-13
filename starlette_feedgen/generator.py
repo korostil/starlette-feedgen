@@ -24,6 +24,8 @@ import datetime
 from io import StringIO
 
 from .utils import SimplerXMLGenerator, get_tag_uri, iri_to_uri, rfc2822_date, rfc3339_date
+from typing import Any, Optional
+from aiofiles.threadpool.text import AsyncTextIOWrapper
 
 utc = datetime.timezone.utc
 
@@ -35,22 +37,22 @@ class SyndicationFeed:
 
     def __init__(
         self,
-        title,
-        link,
-        description,
-        language=None,
-        author_email=None,
-        author_name=None,
-        author_link=None,
-        subtitle=None,
-        categories=None,
-        feed_url=None,
-        feed_copyright=None,
-        feed_guid=None,
-        ttl=None,
-        **kwargs,
+        title: str,
+        link: str,
+        description: str,
+        language: str = None,
+        author_email: str = None,
+        author_name: str = None,
+        author_link: str = None,
+        subtitle: str = None,
+        categories: list = None,
+        feed_url: str = None,
+        feed_copyright: str = None,
+        feed_guid: str = None,
+        ttl: int = None,
+        **kwargs: Any,
     ):
-        def to_str(s):
+        def to_str(s: Any) -> Optional[str]:
             return str(s) if s is not None else s
 
         categories = categories and [str(c) for c in categories]
@@ -70,34 +72,34 @@ class SyndicationFeed:
             "ttl": to_str(ttl),
             **kwargs,
         }
-        self.items = []
+        self.items: list = []
 
     def add_item(
         self,
-        title,
-        link,
-        description,
-        author_email=None,
-        author_name=None,
-        author_link=None,
-        pubdate=None,
-        comments=None,
-        unique_id=None,
-        unique_id_is_permalink=None,
-        categories=(),
-        item_copyright=None,
-        ttl=None,
-        updateddate=None,
-        enclosures=None,
-        **kwargs,
-    ):
+        title: str,
+        link: str,
+        description: str,
+        author_email: str = None,
+        author_name: str = None,
+        author_link: str = None,
+        pubdate: datetime.datetime = None,
+        comments: Any = None,
+        unique_id: str = None,
+        unique_id_is_permalink: bool = None,
+        categories: Any = (),
+        item_copyright: str = None,
+        ttl: int = None,
+        updateddate: datetime.datetime = None,
+        enclosures: list = None,
+        **kwargs: Any,
+    ) -> None:
         """
         Add an item to the feed. All args are expected to be strings except
         pubdate and updateddate, which are datetime.datetime objects, and
         enclosures, which is an iterable of instances of the Enclosure class.
         """
 
-        def to_str(s):
+        def to_str(s: Any) -> Optional[str]:
             return str(s) if s is not None else s
 
         categories = categories and [to_str(c) for c in categories]
@@ -122,36 +124,36 @@ class SyndicationFeed:
             }
         )
 
-    def num_items(self):
+    def num_items(self) -> int:
         return len(self.items)
 
-    def root_attributes(self):
+    def root_attributes(self) -> dict:
         """
         Return extra attributes to place on the root (i.e. feed/channel) element.
         Called from write().
         """
         return {}
 
-    async def add_root_elements(self, handler):
+    async def add_root_elements(self, handler: SimplerXMLGenerator) -> None:
         """
         Add elements in the root (i.e. feed/channel) element. Called
         from write().
         """
         pass
 
-    async def item_attributes(self, item):
+    def item_attributes(self, item: Any) -> dict:
         """
         Return extra attributes to place on each item (i.e. item/entry) element.
         """
         return {}
 
-    async def add_item_elements(self, handler, item):
+    async def add_item_elements(self, handler: SimplerXMLGenerator, item: Any) -> None:
         """
         Add elements on each item (i.e. item/entry) element.
         """
         pass
 
-    async def write(self, outfile, encoding):
+    async def write(self, outfile: AsyncTextIOWrapper, encoding: str) -> None:
         """
         Output the feed in the given encoding to outfile, which is a file-like
         object. Subclasses should override this.
@@ -180,7 +182,7 @@ class SyndicationFeed:
 class Enclosure:
     """An RSS enclosure"""
 
-    def __init__(self, url, length, mime_type):
+    def __init__(self, url: str, length: str, mime_type: str):
         "All args are expected to be strings"
         self.length, self.mime_type = length, mime_type
         self.url = iri_to_uri(url)
@@ -189,7 +191,7 @@ class Enclosure:
 class RssFeed(SyndicationFeed):
     content_type = "application/rss+xml; charset=utf-8"
 
-    async def write(self, outfile, encoding="utf-8"):
+    async def write(self, outfile: AsyncTextIOWrapper, encoding: str = "utf-8") -> None:
         handler = SimplerXMLGenerator(outfile, encoding)
         await handler.startDocument()
         await handler.startElement("rss", self.rss_attributes())
@@ -199,16 +201,16 @@ class RssFeed(SyndicationFeed):
         await self.endChannelElement(handler)
         await handler.endElement("rss")
 
-    def rss_attributes(self):
+    def rss_attributes(self) -> dict:
         return {"version": self._version, "xmlns:atom": "http://www.w3.org/2005/Atom"}
 
-    async def write_items(self, handler):
+    async def write_items(self, handler: SimplerXMLGenerator) -> None:
         for item in self.items:
             await handler.startElement("item", self.item_attributes(item))
             await self.add_item_elements(handler, item)
             await handler.endElement("item")
 
-    async def add_root_elements(self, handler):
+    async def add_root_elements(self, handler: SimplerXMLGenerator):
         await handler.addQuickElement("title", self.feed["title"])
         await handler.addQuickElement("link", self.feed["link"])
         await handler.addQuickElement("description", self.feed["description"])
@@ -226,14 +228,14 @@ class RssFeed(SyndicationFeed):
         if self.feed["ttl"] is not None:
             await handler.addQuickElement("ttl", self.feed["ttl"])
 
-    async def endChannelElement(self, handler):
+    async def endChannelElement(self, handler: SimplerXMLGenerator) -> None:
         await handler.endElement("channel")
 
 
 class RssUserland091Feed(RssFeed):
     _version = "0.91"
 
-    async def add_item_elements(self, handler, item):
+    async def add_item_elements(self, handler: SimplerXMLGenerator, item: Any) -> None:
         await handler.addQuickElement("title", item["title"])
         await handler.addQuickElement("link", item["link"])
         if item["description"] is not None:
@@ -244,7 +246,7 @@ class Rss201rev2Feed(RssFeed):
     # Spec: https://cyber.harvard.edu/rss/rss.html
     _version = "2.0"
 
-    async def add_item_elements(self, handler, item):
+    async def add_item_elements(self, handler: SimplerXMLGenerator, item: Any) -> None:
         await handler.addQuickElement("title", item["title"])
         await handler.addQuickElement("link", item["link"])
         if item["description"] is not None:
@@ -299,7 +301,7 @@ class Atom1Feed(SyndicationFeed):
     content_type = "application/atom+xml; charset=utf-8"
     ns = "http://www.w3.org/2005/Atom"
 
-    async def write(self, outfile, encoding):
+    async def write(self, outfile: AsyncTextIOWrapper, encoding: str) -> None:
         handler = SimplerXMLGenerator(outfile, encoding)
         await handler.startDocument()
         await handler.startElement("feed", self.root_attributes())
@@ -307,13 +309,13 @@ class Atom1Feed(SyndicationFeed):
         await self.write_items(handler)
         await handler.endElement("feed")
 
-    def root_attributes(self):
+    def root_attributes(self) -> dict:
         if self.feed["language"] is not None:
             return {"xmlns": self.ns, "xml:lang": self.feed["language"]}
         else:
             return {"xmlns": self.ns}
 
-    async def add_root_elements(self, handler):
+    async def add_root_elements(self, handler: SimplerXMLGenerator) -> None:
         await handler.addQuickElement("title", self.feed["title"])
         await handler.addQuickElement("link", "", {"rel": "alternate", "href": self.feed["link"]})
         if self.feed["feed_url"] is not None:
@@ -335,13 +337,13 @@ class Atom1Feed(SyndicationFeed):
         if self.feed["feed_copyright"] is not None:
             await handler.addQuickElement("rights", self.feed["feed_copyright"])
 
-    async def write_items(self, handler):
+    async def write_items(self, handler: SimplerXMLGenerator) -> None:
         for item in self.items:
             await handler.startElement("entry", self.item_attributes(item))
             await self.add_item_elements(handler, item)
             await handler.endElement("entry")
 
-    async def add_item_elements(self, handler, item):
+    async def add_item_elements(self, handler: SimplerXMLGenerator, item: Any) -> None:
         await handler.addQuickElement("title", item["title"])
         await handler.addQuickElement("link", "", {"href": item["link"], "rel": "alternate"})
 

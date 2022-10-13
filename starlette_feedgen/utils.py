@@ -1,9 +1,10 @@
+from aiofiles.threadpool.text import AsyncTextIOWrapper
 import datetime
 import email
 import re
 from asyncio.coroutines import iscoroutinefunction
 from email.utils import formatdate
-from typing import Any, Callable, Union
+from typing import Any, Callable, Union, Optional
 from urllib.parse import quote, urlparse
 from xml.sax.saxutils import quoteattr, escape
 
@@ -15,18 +16,19 @@ class UnserializableContentError(ValueError):
 
 
 class AsyncXMLGenerator:
-    def __init__(self, out, encoding="iso-8859-1", short_empty_elements=False):
+    def __init__(self, out: AsyncTextIOWrapper, encoding: str = "iso-8859-1", short_empty_elements: bool = False):
         self._locator = None
         self._write = out.write
         self._flush = out.flush
-        self._ns_contexts = [{}]  # contains uri -> prefix dicts
+        self._ns_contexts: list = [{}]  # contains uri -> prefix dicts
         self._current_context = self._ns_contexts[-1]
-        self._undeclared_ns_maps = []
+        self._undeclared_ns_maps: list = []
         self._encoding = encoding
         self._short_empty_elements = short_empty_elements
         self._pending_start_element = False
 
-    def _qname(self, name):
+    # TODO: get rid of the function?
+    def _qname(self, name):  # type: ignore
         """Builds a qualified name from a (ns_url, localname) pair"""
         if name[0]:
             # Per http://www.w3.org/XML/1998/namespace, The 'xml' prefix is
@@ -43,30 +45,31 @@ class AsyncXMLGenerator:
         # Return the unqualified name
         return name[1]
 
-    async def _finish_pending_start_element(self):
+    async def _finish_pending_start_element(self) -> None:
         if self._pending_start_element:
             await self._write('>')
             self._pending_start_element = False
 
     # ContentHandler methods
-
-    async def startDocument(self):
+    async def startDocument(self) -> None:
         await self._write('<?xml version="1.0" encoding="%s"?>\n' %
                     self._encoding)
 
-    async def endDocument(self):
+    async def endDocument(self) -> None:
         await self._flush()
 
-    def startPrefixMapping(self, prefix, uri):
+    # TODO: get rid of the function?
+    def startPrefixMapping(self, prefix, uri):  # type: ignore
         self._ns_contexts.append(self._current_context.copy())
         self._current_context[uri] = prefix
         self._undeclared_ns_maps.append((prefix, uri))
 
-    def endPrefixMapping(self):
+    # TODO: get rid of the function?
+    def endPrefixMapping(self):  # type: ignore
         self._current_context = self._ns_contexts[-1]
         del self._ns_contexts[-1]
 
-    async def startElement(self, name, attrs):
+    async def startElement(self, name: str, attrs: dict) -> None:
         await self._finish_pending_start_element()
         await self._write('<' + name)
         for (name, value) in attrs.items():
@@ -76,14 +79,15 @@ class AsyncXMLGenerator:
         else:
             await self._write(">")
 
-    async def endElement(self, name):
+    async def endElement(self, name: str) -> None:
         if self._pending_start_element:
             await self._write('/>')
             self._pending_start_element = False
         else:
             await self._write('</%s>' % name)
 
-    async def startElementNS(self, name, attrs):
+    # TODO: get rid of the function?
+    async def startElementNS(self, name, attrs):  # type: ignore
         await self._finish_pending_start_element()
         await self._write('<' + self._qname(name))
 
@@ -101,34 +105,36 @@ class AsyncXMLGenerator:
         else:
             await self._write(">")
 
-    async def endElementNS(self, name):
+    # TODO: get rid of the function?
+    async def endElementNS(self, name):  # type: ignore
         if self._pending_start_element:
             await self._write('/>')
             self._pending_start_element = False
         else:
             await self._write('</%s>' % self._qname(name))
 
-    async def characters(self, content):
+    async def characters(self, content: Any) -> None:
         if content:
             await self._finish_pending_start_element()
             if not isinstance(content, str):
                 content = str(content, self._encoding)
             await self._write(escape(content))
 
-    async def ignorableWhitespace(self, content):
+    async def ignorableWhitespace(self, content: Any) -> None:
         if content:
             await self._finish_pending_start_element()
             if not isinstance(content, str):
                 content = str(content, self._encoding)
             await self._write(content)
 
-    async def processingInstruction(self, target, data):
+    # TODO: get rid of the function?
+    async def processingInstruction(self, target, data):  # type: ignore
         await self._finish_pending_start_element()
         await self._write('<?%s %s?>' % (target, data))
 
 
 class SimplerXMLGenerator(AsyncXMLGenerator):
-    async def addQuickElement(self, name: str, contents: str = None, attrs: dict = None) -> None:
+    async def addQuickElement(self, name: str, contents: Any = None, attrs: dict = None) -> None:
         """Convenience method for adding an element with no children"""
         if attrs is None:
             attrs = {}
@@ -145,7 +151,7 @@ class SimplerXMLGenerator(AsyncXMLGenerator):
         await super().characters(content)
 
 
-def iri_to_uri(iri: str) -> str:
+def iri_to_uri(iri: Optional[str]) -> Optional[str]:
     """
     Convert an Internationalized Resource Identifier (IRI) portion to a URI
     portion that is suitable for inclusion in a URL.
@@ -199,7 +205,7 @@ def rfc3339_date(date: Union[datetime.datetime, str]) -> str:
     return date.isoformat() + ("Z" if date.utcoffset() is None else "")
 
 
-def get_tag_uri(url: str, date: datetime) -> str:
+def get_tag_uri(url: str, date: datetime.datetime) -> str:
     """
     Create a TagURI.
 
