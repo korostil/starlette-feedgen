@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Optional, Union
 from uuid import UUID
 
 from pydantic import BaseModel, NoneStr, HttpUrl
@@ -8,7 +7,7 @@ from pydantic import BaseModel, NoneStr, HttpUrl
 # Author schema
 class Author(BaseModel):
     first_name: str
-    id: Optional[UUID]
+    id: UUID | None
     last_name: NoneStr
     nickname: NoneStr
 
@@ -32,7 +31,7 @@ class MediaObject(BaseModel):
 
 
 class Cover(BaseModel):
-    cover_image: Union[MediaObject, str, None]
+    cover_image: MediaObject | str | None
 
     class Config:
         allow_mutation = False
@@ -49,20 +48,20 @@ class Share(BaseModel):
 
 # Article schemas
 class Stats(BaseModel):
-    id: Optional[UUID]
+    id: UUID | None
     views: int = 0
 
 
 class Article(BaseModel):
-    author: Optional[Author]
+    author: Author | None
     config: dict = {}
     content: dict = {}
-    cover: Optional[Cover]
+    cover: Cover | None
     date_modified: datetime
     date_published: datetime
     excerpt: NoneStr
     flows: list[str] = []  # Flow -> str
-    id: Optional[UUID]
+    id: UUID | None
     legacy_path: str
     path: str
     share: Share = Share()
@@ -156,7 +155,7 @@ articles_data = [
             ],
         },
         "cover": {"cover_image": ""},
-        "date_modified": datetime(2022, 9, 29, 13, 26, 9, 63027),
+        "date_modified": datetime(2022, 11, 29, 13, 26, 9, 63027),
         "date_published": datetime(2022, 9, 29, 13, 26, 5, 346966),
         "id": UUID("f78112bd-eac6-4ee8-96ad-bac8d3d1f110"),
         "legacy_path": "/dacha-here-seller-abroad/",

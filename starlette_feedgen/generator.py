@@ -21,11 +21,18 @@ For definitions of the different versions of RSS, see:
 https://web.archive.org/web/20110718035220/http://diveintomark.org/archives/2004/02/04/incompatible-rss
 """
 import datetime
-from io import StringIO
+from collections.abc import Iterable
+from typing import Any
 
-from .utils import SimplerXMLGenerator, get_tag_uri, iri_to_uri, rfc2822_date, rfc3339_date
-from typing import Any, Optional
 from aiofiles.threadpool.text import AsyncTextIOWrapper
+
+from .utils import (
+    SimplerXMLGenerator,
+    get_tag_uri,
+    iri_to_uri,
+    rfc2822_date,
+    rfc3339_date,
+)
 
 utc = datetime.timezone.utc
 
@@ -45,7 +52,7 @@ class SyndicationFeed:
         author_name: str = None,
         author_link: str = None,
         subtitle: str = None,
-        categories: list = None,
+        categories: Iterable = None,
         feed_url: str = None,
         feed_copyright: str = None,
         feed_guid: str = None,
@@ -53,11 +60,10 @@ class SyndicationFeed:
         use_cached_items: bool = False,
         **kwargs: Any,
     ):
-        def to_str(s: Any) -> Optional[str]:
+        def to_str(s: Any) -> str | None:
             return str(s) if s is not None else s
 
-        categories = categories and [str(c) for c in categories]
-        self.feed = {
+        self.feed: dict = {
             "title": to_str(title),
             "link": iri_to_uri(link),
             "description": to_str(description),
@@ -66,7 +72,7 @@ class SyndicationFeed:
             "author_name": to_str(author_name),
             "author_link": iri_to_uri(author_link),
             "subtitle": to_str(subtitle),
-            "categories": categories or (),
+            "categories": [str(c) for c in categories or []],
             "feed_url": iri_to_uri(feed_url),
             "feed_copyright": to_str(feed_copyright),
             "id": feed_guid or link,
@@ -74,7 +80,7 @@ class SyndicationFeed:
             **kwargs,
         }
         self.items: list = []
-        self.use_cached_items = use_cached_items
+        self.use_cached_items = use_cached_items  # докидываем параметры кэширования
         self.cached_items: list[str] = []
 
     def add_item(
@@ -89,7 +95,7 @@ class SyndicationFeed:
         comments: Any = None,
         unique_id: str = None,
         unique_id_is_permalink: bool = None,
-        categories: Any = (),
+        categories: Iterable = None,
         item_copyright: str = None,
         ttl: int = None,
         updateddate: datetime.datetime = None,
@@ -102,10 +108,9 @@ class SyndicationFeed:
         enclosures, which is an iterable of instances of the Enclosure class.
         """
 
-        def to_str(s: Any) -> Optional[str]:
+        def to_str(s: Any) -> str | None:
             return str(s) if s is not None else s
 
-        categories = categories and [to_str(c) for c in categories]
         self.items.append(
             {
                 "title": to_str(title),
@@ -120,14 +125,14 @@ class SyndicationFeed:
                 "unique_id": to_str(unique_id),
                 "unique_id_is_permalink": unique_id_is_permalink,
                 "enclosures": enclosures or (),
-                "categories": categories or (),
+                "categories": [str(c) for c in categories or []],
                 "item_copyright": to_str(item_copyright),
                 "ttl": to_str(ttl),
                 **kwargs,
             }
         )
 
-    def add_cached_items(self, cached_items: list[str]):
+    def add_cached_items(self, cached_items: list[str]) -> None:
         self.cached_items.extend(cached_items)
 
     def num_items(self) -> int:
@@ -164,9 +169,11 @@ class SyndicationFeed:
         Output the feed in the given encoding to outfile, which is a file-like
         object. Subclasses should override this.
         """
-        raise NotImplementedError("subclasses of SyndicationFeed must provide a write() method")
+        raise NotImplementedError(
+            "subclasses of SyndicationFeed must provide a write() method"
+        )
 
-    def latest_post_date(self):
+    def latest_post_date(self) -> datetime.datetime:
         """
         Return the latest item's pubdate or updateddate. If no items
         have either of these attributes this return the current UTC date/time.
@@ -178,7 +185,8 @@ class SyndicationFeed:
             for date_key in date_keys:
                 item_date = item.get(date_key)
                 if item_date:
-                    if latest_date is None or item_date > latest_date:
+                    # right operand of "or" can be reached (mypy)
+                    if latest_date is None or item_date > latest_date:  # type: ignore
                         latest_date = item_date
 
         # datetime.now(tz=utc) is slower, as documented in django.utils.timezone.now
@@ -195,6 +203,7 @@ class Enclosure:
 
 
 class RssFeed(SyndicationFeed):
+    _version = ""
     content_type = "application/rss+xml; charset=utf-8"
 
     async def write(self, outfile: AsyncTextIOWrapper, encoding: str = "utf-8") -> None:
@@ -216,7 +225,7 @@ class RssFeed(SyndicationFeed):
             await self.add_item_elements(handler, item)
             await handler.endElement("item")
 
-    async def add_root_elements(self, handler: SimplerXMLGenerator):
+    async def add_root_elements(self, handler: SimplerXMLGenerator) -> None:
         await handler.addQuickElement("title", self.feed["title"])
         await handler.addQuickElement("link", self.feed["link"])
         await handler.addQuickElement("description", self.feed["description"])
@@ -230,7 +239,9 @@ class RssFeed(SyndicationFeed):
             await handler.addQuickElement("category", cat)
         if self.feed["feed_copyright"] is not None:
             await handler.addQuickElement("copyright", self.feed["feed_copyright"])
-        await handler.addQuickElement("lastBuildDate", rfc2822_date(self.latest_post_date()))
+        await handler.addQuickElement(
+            "lastBuildDate", rfc2822_date(self.latest_post_date())
+        )
         if self.feed["ttl"] is not None:
             await handler.addQuickElement("ttl", self.feed["ttl"])
 
@@ -261,13 +272,15 @@ class Rss201rev2Feed(RssFeed):
         # Author information.
         if item["author_name"] and item["author_email"]:
             await handler.addQuickElement(
-                "author", "%s (%s)" % (item["author_email"], item["author_name"])
+                "author", "{} ({})".format(item["author_email"], item["author_name"])
             )
         elif item["author_email"]:
             await handler.addQuickElement("author", item["author_email"])
         elif item["author_name"]:
             await handler.addQuickElement(
-                "dc:creator", item["author_name"], {"xmlns:dc": "http://purl.org/dc/elements/1.1/"},
+                "dc:creator",
+                item["author_name"],
+                {"xmlns:dc": "http://purl.org/dc/elements/1.1/"},
             )
 
         if item["pubdate"] is not None:
@@ -294,7 +307,11 @@ class Rss201rev2Feed(RssFeed):
             await handler.addQuickElement(
                 "enclosure",
                 "",
-                {"url": enclosure.url, "length": enclosure.length, "type": enclosure.mime_type},
+                {
+                    "url": enclosure.url,
+                    "length": enclosure.length,
+                    "type": enclosure.mime_type,
+                },
             )
 
         # Categories.
@@ -323,9 +340,13 @@ class Atom1Feed(SyndicationFeed):
 
     async def add_root_elements(self, handler: SimplerXMLGenerator) -> None:
         await handler.addQuickElement("title", self.feed["title"])
-        await handler.addQuickElement("link", "", {"rel": "alternate", "href": self.feed["link"]})
+        await handler.addQuickElement(
+            "link", "", {"rel": "alternate", "href": self.feed["link"]}
+        )
         if self.feed["feed_url"] is not None:
-            await handler.addQuickElement("link", "", {"rel": "self", "href": self.feed["feed_url"]})
+            await handler.addQuickElement(
+                "link", "", {"rel": "self", "href": self.feed["feed_url"]}
+            )
         await handler.addQuickElement("id", self.feed["id"])
         await handler.addQuickElement("updated", rfc3339_date(self.latest_post_date()))
         if self.feed["author_name"] is not None:
@@ -351,7 +372,9 @@ class Atom1Feed(SyndicationFeed):
 
     async def add_item_elements(self, handler: SimplerXMLGenerator, item: Any) -> None:
         await handler.addQuickElement("title", item["title"])
-        await handler.addQuickElement("link", "", {"href": item["link"], "rel": "alternate"})
+        await handler.addQuickElement(
+            "link", "", {"href": item["link"], "rel": "alternate"}
+        )
 
         if item["pubdate"] is not None:
             await handler.addQuickElement("published", rfc3339_date(item["pubdate"]))
@@ -378,7 +401,9 @@ class Atom1Feed(SyndicationFeed):
 
         # Summary.
         if item["description"] is not None:
-            await handler.addQuickElement("summary", item["description"], {"type": "html"})
+            await handler.addQuickElement(
+                "summary", item["description"], {"type": "html"}
+            )
 
         # Enclosures.
         for enclosure in item["enclosures"]:

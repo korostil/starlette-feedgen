@@ -43,7 +43,7 @@ class ExtendedFeed(Rss201rev2Feed):
         await handler.endElement('rss')
 
     async def cache_items(self, handler: SXG, encoding: str) -> None:
-        if self.use_cached_items:
+        if self.use_cached_items:  # либо пишем полученные на лету данные, либо кэшированнные
             for item in self.cached_items:
                 await handler._write(item)
         else:
@@ -61,7 +61,7 @@ class ExtendedFeed(Rss201rev2Feed):
             await buf.seek(0)
             string_result = await buf.read()
             bytes_result = string_result.encode(encoding)
-            print(bytes_result)
+            print(bytes_result)  # псевдо-кэширование (вывод байтов в консоль)
             # await opis_api.upload(
             #     file=buf, namespace=self.feed['name'], filename=f"{item['slug']}.xml"
             # )
@@ -133,8 +133,7 @@ class AsyncFeed(FeedEndpoint, ABC):
         self.init_tasks = []
 
     async def get(self, request):
-        # simple cache logic
-
+        # простая логика кэширования, в ютурне тут будем забирать из описа
         self.use_cached_items = True
         self.cached_items.extend(cached_items)
 

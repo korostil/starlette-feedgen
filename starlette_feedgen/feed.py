@@ -1,13 +1,12 @@
-import aiofiles
-from asyncio.coroutines import iscoroutinefunction
 from abc import ABC, abstractmethod
+from asyncio.coroutines import iscoroutinefunction
 from calendar import timegm
+from collections.abc import AsyncGenerator, AsyncIterable, Iterable
 from html import escape
 from http import HTTPStatus
-from io import BytesIO
-from typing import Any, AsyncIterable, Dict, Iterable, Optional, Type
+from typing import Any
 
-from starlette.background import BackgroundTask
+import aiofiles
 from starlette.endpoints import HTTPEndpoint
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
@@ -18,15 +17,16 @@ from .utils import add_domain, http_date
 
 
 class FeedEndpoint(HTTPEndpoint, ABC):
-    feed_type: Type[SyndicationFeed] = DefaultFeed
-    language: Optional[str] = None
-    domain: Optional[str] = None
+    feed_type: type[SyndicationFeed] = DefaultFeed
+    language: str | None = None
+    domain: str | None = None
     link: str = "/"
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
+        # докидываем аттрибуты для кэширования
         self.use_cached_items = False
-        self.cached_items = []
+        self.cached_items: list = []
 
     @abstractmethod
     async def get_items(self) -> Iterable:
@@ -36,7 +36,9 @@ class FeedEndpoint(HTTPEndpoint, ABC):
         try:
             obj = await self.get_object(request)
         except FeedDoesNotExist:
-            raise HTTPException(int(HTTPStatus.NOT_FOUND), detail="Feed object does not exist")
+            raise HTTPException(
+                int(HTTPStatus.NOT_FOUND), detail="Feed object does not exist"
+            )
         headers = {}
         feed_generator = await self.get_feed(obj, request)
         if hasattr(self, "item_pubdate") or hasattr(self, "item_updateddate"):
@@ -45,9 +47,9 @@ class FeedEndpoint(HTTPEndpoint, ABC):
             )
         encoding = "utf-8"
 
-        async def iter_feed():
+        async def iter_feed() -> AsyncGenerator[str, None]:
             async with aiofiles.tempfile.TemporaryFile(
-                    'w+', newline="\n", encoding=encoding
+                'w+', newline="\n", encoding=encoding
             ) as feed:
                 await feed_generator.write(feed, encoding=encoding)
                 await feed.seek(0)
@@ -55,12 +57,14 @@ class FeedEndpoint(HTTPEndpoint, ABC):
                     yield chunk
 
         return StreamingResponse(
-            iter_feed(), media_type=feed_generator.content_type, headers=headers)
+            iter_feed(), media_type=feed_generator.content_type, headers=headers
+        )
 
     async def get_object(self, request: Request, *args: Any, **kwargs: Any) -> Any:
         ...
 
-    # очень большая вероятность, что кроме какой-то простой логики тут ничего не будет, оставляем синк
+    # очень большая вероятность, что кроме какой-то простой логики тут ничего не будет,
+    # оставляем синк
     def item_link(self, item: Any) -> str:
         return getattr(item, "link", self.link)
 
@@ -79,14 +83,12 @@ class FeedEndpoint(HTTPEndpoint, ABC):
             return []
         length: str = await self._get_dynamic_attr("item_enclosure_length", item)
         mime_type: str = await self._get_dynamic_attr("item_enclosure_mime_type", item)
-        enc = Enclosure(
-            url=str(enc_url),
-            length=length,
-            mime_type=mime_type,
-        )
+        enc = Enclosure(url=str(enc_url), length=length, mime_type=mime_type)
         return [enc]
 
-    async def _get_dynamic_attr(self, attname: str, obj: Any, default: Any = None) -> Any:
+    async def _get_dynamic_attr(
+        self, attname: str, obj: Any, default: Any = None
+    ) -> Any:
         attr = getattr(self, attname, default)
         if not callable(attr):
             return attr
@@ -97,7 +99,7 @@ class FeedEndpoint(HTTPEndpoint, ABC):
             code = attr.__code__
         except AttributeError:
             code = attr.__call__.__code__
-        args = ()
+        args: tuple = ()
         if code.co_argcount == 2:  # one argument is 'self'
             args = (obj,)
 
@@ -109,14 +111,14 @@ class FeedEndpoint(HTTPEndpoint, ABC):
 
     # везде, где до конца непонятно какие данные будут формироваться (читай extra_kwargs)
     # считаю лучше перестраховаться и сделать async
-    async def feed_extra_kwargs(self, obj: Any) -> Dict[str, Any]:
+    async def feed_extra_kwargs(self, obj: Any) -> dict[str, Any]:
         """
         Return an extra keyword arguments dictionary that is used when
         initializing the feed generator.
         """
         return {}
 
-    async def item_extra_kwargs(self, item: Any) -> Dict[str, Any]:
+    async def item_extra_kwargs(self, item: Any) -> dict[str, Any]:
         """
         Return an extra keyword arguments dictionary that is used with
         the `add_item` call of the feed generator.
@@ -142,7 +144,8 @@ class FeedEndpoint(HTTPEndpoint, ABC):
             description=await self._get_dynamic_attr("description", obj),
             language=self.language,
             feed_url=add_domain(
-                self.domain, feed_url or request.url.path, request_is_secure),
+                self.domain, feed_url or request.url.path, request_is_secure
+            ),
             author_name=await self._get_dynamic_attr("author_name", obj),
             author_link=await self._get_dynamic_attr("author_link", obj),
             author_email=await self._get_dynamic_attr("author_email", obj),
@@ -150,11 +153,12 @@ class FeedEndpoint(HTTPEndpoint, ABC):
             feed_copyright=await self._get_dynamic_attr("feed_copyright", obj),
             feed_guid=await self._get_dynamic_attr("feed_guid", obj),
             ttl=await self._get_dynamic_attr("ttl", obj),
-            use_cached_items=self.use_cached_items,
+            use_cached_items=self.use_cached_items,  # прокидываем аттрибут в генератор фида
             **feed_extra_kwargs,
         )
 
-        if not self.use_cached_items:
+        # смотрим для текущего объекта фида параметры кэширования
+        if not self.use_cached_items:  # собираем на лету (как и раньше)
             items = await self.get_items()
             if isinstance(items, AsyncIterable):
                 async for item in items:
@@ -162,7 +166,7 @@ class FeedEndpoint(HTTPEndpoint, ABC):
             else:
                 for item in items:
                     await self._populate_feed(feed, item, request_is_secure)
-        else:
+        else:  # добавляем уже готовые фиды статей
             feed.add_cached_items(self.cached_items)
         return feed
 
@@ -172,7 +176,9 @@ class FeedEndpoint(HTTPEndpoint, ABC):
         title = await self._get_dynamic_attr("item_title", item)
         description = await self._get_dynamic_attr("item_description", item)
         link = add_domain(
-            self.domain, await self._get_dynamic_attr("item_link", item), request_is_secure,
+            self.domain,
+            await self._get_dynamic_attr("item_link", item),
+            request_is_secure,
         )
         enclosures = await self._get_dynamic_attr("item_enclosures", item)
         author_name = await self._get_dynamic_attr("item_author_name", item)
@@ -190,7 +196,9 @@ class FeedEndpoint(HTTPEndpoint, ABC):
             link=link,
             description=description,
             unique_id=await self._get_dynamic_attr("item_guid", item, link),
-            unique_id_is_permalink=await self._get_dynamic_attr("item_guid_is_permalink", item),
+            unique_id_is_permalink=await self._get_dynamic_attr(
+                "item_guid_is_permalink", item
+            ),
             enclosures=enclosures,
             pubdate=pubdate,
             updateddate=updateddate,

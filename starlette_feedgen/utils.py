@@ -1,14 +1,12 @@
-from aiofiles.threadpool.text import AsyncTextIOWrapper
 import datetime
 import email
 import re
-from asyncio.coroutines import iscoroutinefunction
 from email.utils import formatdate
-from typing import Any, Callable, Union, Optional
+from typing import Any
 from urllib.parse import quote, urlparse
-from xml.sax.saxutils import quoteattr, escape
+from xml.sax.saxutils import escape, quoteattr
 
-from starlette.concurrency import run_in_threadpool
+from aiofiles.threadpool.text import AsyncTextIOWrapper
 
 
 class UnserializableContentError(ValueError):
@@ -16,7 +14,12 @@ class UnserializableContentError(ValueError):
 
 
 class AsyncXMLGenerator:
-    def __init__(self, out: AsyncTextIOWrapper, encoding: str = "iso-8859-1", short_empty_elements: bool = False):
+    def __init__(
+        self,
+        out: AsyncTextIOWrapper,
+        encoding: str = "iso-8859-1",
+        short_empty_elements: bool = False,
+    ):
         self._locator = None
         self._write = out.write
         self._flush = out.flush
@@ -52,8 +55,7 @@ class AsyncXMLGenerator:
 
     # ContentHandler methods
     async def startDocument(self) -> None:
-        await self._write('<?xml version="1.0" encoding="%s"?>\n' %
-                    self._encoding)
+        await self._write('<?xml version="1.0" encoding="%s"?>\n' % self._encoding)
 
     async def endDocument(self) -> None:
         await self._flush()
@@ -73,7 +75,7 @@ class AsyncXMLGenerator:
         await self._finish_pending_start_element()
         await self._write('<' + name)
         for (name, value) in attrs.items():
-            await self._write(' %s=%s' % (name, quoteattr(value)))
+            await self._write(f' {name}={quoteattr(value)}')
         if self._short_empty_elements:
             self._pending_start_element = True
         else:
@@ -93,13 +95,13 @@ class AsyncXMLGenerator:
 
         for prefix, uri in self._undeclared_ns_maps:
             if prefix:
-                await self._write(' xmlns:%s="%s"' % (prefix, uri))
+                await self._write(f' xmlns:{prefix}="{uri}"')
             else:
                 await self._write(' xmlns="%s"' % uri)
         self._undeclared_ns_maps = []
 
         for (name, value) in attrs.items():
-            await self._write(' %s=%s' % (self._qname(name), quoteattr(value)))
+            await self._write(f' {self._qname(name)}={quoteattr(value)}')
         if self._short_empty_elements:
             self._pending_start_element = True
         else:
@@ -130,11 +132,13 @@ class AsyncXMLGenerator:
     # TODO: get rid of the function?
     async def processingInstruction(self, target, data):  # type: ignore
         await self._finish_pending_start_element()
-        await self._write('<?%s %s?>' % (target, data))
+        await self._write(f'<?{target} {data}?>')
 
 
 class SimplerXMLGenerator(AsyncXMLGenerator):
-    async def addQuickElement(self, name: str, contents: Any = None, attrs: dict = None) -> None:
+    async def addQuickElement(
+        self, name: str, contents: Any = None, attrs: dict = None
+    ) -> None:
         """Convenience method for adding an element with no children"""
         if attrs is None:
             attrs = {}
@@ -147,11 +151,13 @@ class SimplerXMLGenerator(AsyncXMLGenerator):
         if content and re.search(r"[\x00-\x08\x0B-\x0C\x0E-\x1F]", content):
             # Fail loudly when content has control chars (unsupported in XML 1.0)
             # See http://www.w3.org/International/questions/qa-controls
-            raise UnserializableContentError("Control characters are not supported in XML 1.0")
+            raise UnserializableContentError(
+                "Control characters are not supported in XML 1.0"
+            )
         await super().characters(content)
 
 
-def iri_to_uri(iri: Optional[str]) -> Optional[str]:
+def iri_to_uri(iri: str | None) -> str | None:
     """
     Convert an Internationalized Resource Identifier (IRI) portion to a URI
     portion that is suitable for inclusion in a URL.
@@ -193,15 +199,17 @@ def http_date(epoch_seconds: float = None) -> str:
     return formatdate(epoch_seconds, usegmt=True)
 
 
-def rfc2822_date(date: Union[datetime.datetime, str]) -> str:
-    if not isinstance(date, datetime.datetime):
-        date = datetime.datetime.combine(date, datetime.time())
+def rfc2822_date(date: datetime.datetime) -> str:
+    # считаю этот кусок кода ненужным, так как мы работаем с datetime а не с date
+    # а также странная проверка на непринадлежность типу
+    # if not isinstance(date, datetime.datetime):
+    #     date = datetime.datetime.combine(date, datetime.time())
     return email.utils.format_datetime(date)
 
 
-def rfc3339_date(date: Union[datetime.datetime, str]) -> str:
-    if not isinstance(date, datetime.datetime):
-        date = datetime.datetime.combine(date, datetime.time())
+def rfc3339_date(date: datetime.datetime) -> str:
+    # if not isinstance(date, datetime.datetime):
+    #     date = datetime.datetime.combine(date, datetime.time())
     return date.isoformat() + ("Z" if date.utcoffset() is None else "")
 
 
@@ -220,13 +228,13 @@ def get_tag_uri(url: str, date: datetime.datetime) -> str:
     return f"tag:{bits.hostname}{d}:{bits.path}/{bits.fragment}"
 
 
-def add_domain(domain: str, url: str, secure: bool = False) -> str:
+def add_domain(domain: str | None, url: str, secure: bool = False) -> str:
     if not domain:
         return url
     protocol = "https" if secure else "http"
     if url.startswith("//"):
         # Support network-path reference - RSS requires a protocol
-        url = "%s:%s" % (protocol, url)
+        url = f"{protocol}:{url}"
     elif not url.startswith(("http://", "https://", "mailto:")):
-        url = iri_to_uri("%s://%s%s" % (protocol, domain, url))
+        url = iri_to_uri(f"{protocol}://{domain}{url}") or ""
     return url
