@@ -50,6 +50,7 @@ class SyndicationFeed:
         feed_copyright: str = None,
         feed_guid: str = None,
         ttl: int = None,
+        use_cached_items: bool = False,
         **kwargs: Any,
     ):
         def to_str(s: Any) -> Optional[str]:
@@ -73,6 +74,8 @@ class SyndicationFeed:
             **kwargs,
         }
         self.items: list = []
+        self.use_cached_items = use_cached_items
+        self.cached_items: list[str] = []
 
     def add_item(
         self,
@@ -123,6 +126,9 @@ class SyndicationFeed:
                 **kwargs,
             }
         )
+
+    def add_cached_items(self, cached_items: list[str]):
+        self.cached_items.extend(cached_items)
 
     def num_items(self) -> int:
         return len(self.items)
