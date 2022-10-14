@@ -39,17 +39,19 @@ class FeedEndpoint(HTTPEndpoint, ABC):
             headers["Last-Modified"] = http_date(
                 timegm(feed_generator.latest_post_date().utctimetuple())
             )
-        # здесь мы передаем кодировку в двух местах: в параметры временного файла и в AsyncXMLGenerator (там
-        # кодировка становится атрибутом класса и используется в некоторых методах
         encoding = "utf-8"
 
-        async_context_manager = aiofiles.tempfile.TemporaryFile("w+", newline="\n", encoding=encoding)
-        feed = await async_context_manager.__aenter__()
-        exit_task = BackgroundTask(async_context_manager.__aexit__, None, None, None)  # to close file cleanly
+        async def iter_feed():
+            async with aiofiles.tempfile.TemporaryFile(
+                    'w+', newline="\n", encoding=encoding
+            ) as feed:
+                await feed_generator.write(feed, encoding=encoding)
+                await feed.seek(0)
+                async for chunk in feed:
+                    yield chunk
 
-        await feed_generator.write(feed, encoding=encoding)
-        await feed.seek(0)
-        return StreamingResponse(feed, media_type=feed_generator.content_type, headers=headers, background=exit_task)
+        return StreamingResponse(
+            iter_feed(), media_type=feed_generator.content_type, headers=headers)
 
     async def get_object(self, request: Request, *args: Any, **kwargs: Any) -> Any:
         ...
@@ -71,10 +73,12 @@ class FeedEndpoint(HTTPEndpoint, ABC):
         enc_url = await self._get_dynamic_attr("item_enclosure_url", item)
         if not enc_url:
             return []
+        length: str = await self._get_dynamic_attr("item_enclosure_length", item)
+        mime_type: str = await self._get_dynamic_attr("item_enclosure_mime_type", item)
         enc = Enclosure(
             url=str(enc_url),
-            length=str(await self._get_dynamic_attr("item_enclosure_length", item)),
-            mime_type=str(await self._get_dynamic_attr("item_enclosure_mime_type", item)),
+            length=length,
+            mime_type=mime_type,
         )
         return [enc]
 

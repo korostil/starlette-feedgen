@@ -1,5 +1,6 @@
+from datetime import datetime
+from typing import Optional, Union
 from uuid import UUID
-from datetime import datetime, timezone, timedelta
 
 from pydantic import BaseModel, NoneStr, HttpUrl
 
@@ -7,7 +8,7 @@ from pydantic import BaseModel, NoneStr, HttpUrl
 # Author schema
 class Author(BaseModel):
     first_name: str
-    id: UUID | None
+    id: Optional[UUID]
     last_name: NoneStr
     nickname: NoneStr
 
@@ -31,7 +32,7 @@ class MediaObject(BaseModel):
 
 
 class Cover(BaseModel):
-    cover_image: MediaObject | str | None
+    cover_image: Union[MediaObject, str, None]
 
     class Config:
         allow_mutation = False
@@ -48,20 +49,20 @@ class Share(BaseModel):
 
 # Article schemas
 class Stats(BaseModel):
-    id: UUID | None
+    id: Optional[UUID]
     views: int = 0
 
 
 class Article(BaseModel):
-    author: Author | None
+    author: Optional[Author]
     config: dict = {}
     content: dict = {}
-    cover: Cover | None
+    cover: Optional[Cover]
     date_modified: datetime
     date_published: datetime
     excerpt: NoneStr
     flows: list[str] = []  # Flow -> str
-    id: UUID | None
+    id: Optional[UUID]
     legacy_path: str
     path: str
     share: Share = Share()

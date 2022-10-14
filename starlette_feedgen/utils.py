@@ -17,12 +17,6 @@ class UnserializableContentError(ValueError):
 class AsyncXMLGenerator:
     def __init__(self, out, encoding="iso-8859-1", short_empty_elements=False):
         self._locator = None
-        # Пояснялка по функции _get _gettextwriter(out, encoding)
-        # при вызове этой функции возвращается TextIOWrapper, нам этот вызов не особо нужен,
-        # потому что если мы используем aiofiles, out представляет собой AsyncTextIOWrapper, однако
-        # нам не хватает некоторых параметров конфигурации, которые передавались в возвращаемом объекте
-        # _gettextwriter, а именно encoding, newline. Их мы прокидываем вручную в feed.py
-        # out = _gettextwriter(out, encoding)
         self._write = out.write
         self._flush = out.flush
         self._ns_contexts = [{}]  # contains uri -> prefix dicts
@@ -230,9 +224,3 @@ def add_domain(domain: str, url: str, secure: bool = False) -> str:
     elif not url.startswith(("http://", "https://", "mailto:")):
         url = iri_to_uri("%s://%s%s" % (protocol, domain, url))
     return url
-
-
-# async def run_async_or_thread(handler: Callable, *args: Any, **kwargs: Any) -> Any:
-#     if iscoroutinefunction(handler):
-#         return await handler(*args, **kwargs)
-#     return await run_in_threadpool(handler, *args, **kwargs)

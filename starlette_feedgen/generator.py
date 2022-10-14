@@ -158,16 +158,6 @@ class SyndicationFeed:
         """
         raise NotImplementedError("subclasses of SyndicationFeed must provide a write() method")
 
-    # считаю что функцию надо выпилить: она нигде в Ютурне не используется
-    # и с ailfiles реализовать такую логику будет проблематично
-    async def writeString(self, encoding):
-        """
-        Return the feed in the given encoding as a string.
-        """
-        s = StringIO()
-        await self.write(s, encoding)
-        return s.getvalue()
-
     def latest_post_date(self):
         """
         Return the latest item's pubdate or updateddate. If no items
@@ -200,7 +190,6 @@ class RssFeed(SyndicationFeed):
     content_type = "application/rss+xml; charset=utf-8"
 
     async def write(self, outfile, encoding="utf-8"):
-        # TODO переписать на свой async SimplerXMLGenerator?
         handler = SimplerXMLGenerator(outfile, encoding)
         await handler.startDocument()
         await handler.startElement("rss", self.rss_attributes())
