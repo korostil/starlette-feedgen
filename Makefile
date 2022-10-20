@@ -20,7 +20,7 @@ lint:
 	isort --check-only --diff $(DIR)
 	find . -name '*.py' -not -path '*/$(VENV_DIR)/*' | xargs pyupgrade --py310-plus || true
 	black --check $(DIR) --skip-magic-trailing-comma
-	flake8 $(DIR)
+	flake8 $(DIR) --config=flake8.ini
 
 type:
 	mypy $(DIR)

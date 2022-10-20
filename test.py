@@ -134,8 +134,8 @@ class AsyncFeed(FeedEndpoint, ABC):
 
     async def get(self, request):
         # простая логика кэширования, в ютурне тут будем забирать из описа
-        self.use_cached_items = True
-        self.cached_items.extend(cached_items)
+        # self.use_cached_items = True
+        # self.cached_items.extend(cached_items)
 
         await asyncio.gather(*self.init_tasks)
         response = await super().get(request)

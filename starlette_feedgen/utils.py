@@ -14,10 +14,16 @@ class UnserializableContentError(ValueError):
 
 
 class AsyncXMLGenerator:
+    """
+    Asynchronous content handler.
+    Allows asynchronously generating xml document using aiofiles.tempfile as an outfile.
+    Adapted from xml.sax.saxutils.XMLGenerator.
+    """
+
     def __init__(
         self,
         out: AsyncTextIOWrapper,
-        encoding: str = "iso-8859-1",
+        encoding: str = 'iso-8859-1',
         short_empty_elements: bool = False,
     ):
         self._locator = None
@@ -30,48 +36,31 @@ class AsyncXMLGenerator:
         self._short_empty_elements = short_empty_elements
         self._pending_start_element = False
 
-    # TODO: get rid of the function?
-    def _qname(self, name):  # type: ignore
-        """Builds a qualified name from a (ns_url, localname) pair"""
-        if name[0]:
-            # Per http://www.w3.org/XML/1998/namespace, The 'xml' prefix is
-            # bound by definition to http://www.w3.org/XML/1998/namespace.  It
-            # does not need to be declared and will not usually be found in
-            # self._current_context.
-            if 'http://www.w3.org/XML/1998/namespace' == name[0]:
-                return 'xml:' + name[1]
-            # The name is in a non-empty namespace
-            prefix = self._current_context[name[0]]
-            if prefix:
-                # If it is not the default namespace, prepend the prefix
-                return prefix + ":" + name[1]
-        # Return the unqualified name
-        return name[1]
-
     async def _finish_pending_start_element(self) -> None:
+        """
+        Finish pending start element.
+        """
         if self._pending_start_element:
             await self._write('>')
             self._pending_start_element = False
 
     # ContentHandler methods
     async def startDocument(self) -> None:
-        await self._write('<?xml version="1.0" encoding="%s"?>\n' % self._encoding)
+        """
+        Start xml document.
+        """
+        await self._write(f'<?xml version="1.0" encoding="{self._encoding}"?>\n')
 
     async def endDocument(self) -> None:
+        """
+        Flush outfile.
+        """
         await self._flush()
 
-    # TODO: get rid of the function?
-    def startPrefixMapping(self, prefix, uri):  # type: ignore
-        self._ns_contexts.append(self._current_context.copy())
-        self._current_context[uri] = prefix
-        self._undeclared_ns_maps.append((prefix, uri))
-
-    # TODO: get rid of the function?
-    def endPrefixMapping(self):  # type: ignore
-        self._current_context = self._ns_contexts[-1]
-        del self._ns_contexts[-1]
-
     async def startElement(self, name: str, attrs: dict) -> None:
+        """
+        Start xml element with attributes.
+        """
         await self._finish_pending_start_element()
         await self._write('<' + name)
         for (name, value) in attrs.items():
@@ -79,67 +68,36 @@ class AsyncXMLGenerator:
         if self._short_empty_elements:
             self._pending_start_element = True
         else:
-            await self._write(">")
+            await self._write('>')
 
     async def endElement(self, name: str) -> None:
+        """
+        End xml element.
+        """
         if self._pending_start_element:
             await self._write('/>')
             self._pending_start_element = False
         else:
-            await self._write('</%s>' % name)
-
-    # TODO: get rid of the function?
-    async def startElementNS(self, name, attrs):  # type: ignore
-        await self._finish_pending_start_element()
-        await self._write('<' + self._qname(name))
-
-        for prefix, uri in self._undeclared_ns_maps:
-            if prefix:
-                await self._write(f' xmlns:{prefix}="{uri}"')
-            else:
-                await self._write(' xmlns="%s"' % uri)
-        self._undeclared_ns_maps = []
-
-        for (name, value) in attrs.items():
-            await self._write(f' {self._qname(name)}={quoteattr(value)}')
-        if self._short_empty_elements:
-            self._pending_start_element = True
-        else:
-            await self._write(">")
-
-    # TODO: get rid of the function?
-    async def endElementNS(self, name):  # type: ignore
-        if self._pending_start_element:
-            await self._write('/>')
-            self._pending_start_element = False
-        else:
-            await self._write('</%s>' % self._qname(name))
+            await self._write(f'</{name}>')
 
     async def characters(self, content: Any) -> None:
+        """
+        Escape &, <, and > in a string of content.
+        """
         if content:
             await self._finish_pending_start_element()
             if not isinstance(content, str):
                 content = str(content, self._encoding)
             await self._write(escape(content))
 
-    async def ignorableWhitespace(self, content: Any) -> None:
-        if content:
-            await self._finish_pending_start_element()
-            if not isinstance(content, str):
-                content = str(content, self._encoding)
-            await self._write(content)
-
-    # TODO: get rid of the function?
-    async def processingInstruction(self, target, data):  # type: ignore
-        await self._finish_pending_start_element()
-        await self._write(f'<?{target} {data}?>')
-
 
 class SimplerXMLGenerator(AsyncXMLGenerator):
     async def addQuickElement(
         self, name: str, contents: Any = None, attrs: dict = None
     ) -> None:
-        """Convenience method for adding an element with no children"""
+        """
+        Convenience method for adding an element with no children.
+        """
         if attrs is None:
             attrs = {}
         await self.startElement(name, attrs)
@@ -148,11 +106,14 @@ class SimplerXMLGenerator(AsyncXMLGenerator):
         await self.endElement(name)
 
     async def characters(self, content: str) -> None:
-        if content and re.search(r"[\x00-\x08\x0B-\x0C\x0E-\x1F]", content):
+        """
+        Raise exception of content has control chars.
+        """
+        if content and re.search(r'[\x00-\x08\x0B-\x0C\x0E-\x1F]', content):
             # Fail loudly when content has control chars (unsupported in XML 1.0)
             # See http://www.w3.org/International/questions/qa-controls
             raise UnserializableContentError(
-                "Control characters are not supported in XML 1.0"
+                'Control characters are not supported in XML 1.0'
             )
         await super().characters(content)
 
@@ -172,11 +133,11 @@ def iri_to_uri(iri: str | None) -> str | None:
     """
     # The list of safe characters here is constructed from the "reserved" and
     # "unreserved" characters specified in sections 2.2 and 2.3 of RFC 3986:
-    #     reserved    = gen-delims / sub-delims
+    #     reserved    = gen-delims / sub-delims   noqa: E800
     #     gen-delims  = ":" / "/" / "?" / "#" / "[" / "]" / "@"
     #     sub-delims  = "!" / "$" / "&" / "'" / "(" / ")"
     #                   / "*" / "+" / "," / ";" / "="
-    #     unreserved  = ALPHA / DIGIT / "-" / "." / "_" / "~"
+    #     unreserved  = ALPHA / DIGIT / "-" / "." / "_" / "~"   noqa: E800
     # Of the unreserved characters, urllib.parse.quote() already considers all
     # but the ~ safe.
     # The % character is also added to the list of safe characters here, as the
@@ -199,18 +160,18 @@ def http_date(epoch_seconds: float = None) -> str:
     return formatdate(epoch_seconds, usegmt=True)
 
 
-def rfc2822_date(date: datetime.datetime) -> str:
-    # считаю этот кусок кода ненужным, так как мы работаем с datetime а не с date
-    # а также странная проверка на непринадлежность типу
-    # if not isinstance(date, datetime.datetime):
-    #     date = datetime.datetime.combine(date, datetime.time())
-    return email.utils.format_datetime(date)
+def rfc2822_date(date_time: datetime.datetime) -> str:
+    """
+    Format date and time to match the RFC2822 date format.
+    """
+    return email.utils.format_datetime(date_time)
 
 
-def rfc3339_date(date: datetime.datetime) -> str:
-    # if not isinstance(date, datetime.datetime):
-    #     date = datetime.datetime.combine(date, datetime.time())
-    return date.isoformat() + ("Z" if date.utcoffset() is None else "")
+def rfc3339_date(date_time: datetime.datetime) -> str:
+    """
+    Format date and time to match the RFC3339 date format.
+    """
+    return date_time.isoformat() + ('Z' if date_time.utcoffset() is None else '')
 
 
 def get_tag_uri(url: str, date: datetime.datetime) -> str:
@@ -221,20 +182,23 @@ def get_tag_uri(url: str, date: datetime.datetime) -> str:
     https://web.archive.org/web/20110514113830/http://diveintomark.org/archives/2004/05/28/howto-atom-id
     """
     bits = urlparse(url)
-    d = ""
+    d = ''
     if date is not None:
-        date_str = date.strftime("%Y-%m-%d")
-        d = f",{date_str}"
-    return f"tag:{bits.hostname}{d}:{bits.path}/{bits.fragment}"
+        date_str = date.strftime('%Y-%m-%d')
+        d = f',{date_str}'
+    return f'tag:{bits.hostname}{d}:{bits.path}/{bits.fragment}'
 
 
 def add_domain(domain: str | None, url: str, secure: bool = False) -> str:
+    """
+    Add domain to the given url.
+    """
     if not domain:
         return url
-    protocol = "https" if secure else "http"
-    if url.startswith("//"):
+    protocol = 'https' if secure else 'http'
+    if url.startswith('//'):
         # Support network-path reference - RSS requires a protocol
-        url = f"{protocol}:{url}"
-    elif not url.startswith(("http://", "https://", "mailto:")):
-        url = iri_to_uri(f"{protocol}://{domain}{url}") or ""
+        url = f'{protocol}:{url}'
+    elif not url.startswith(('http://', 'https://', 'mailto:')):
+        url = iri_to_uri(f'{protocol}://{domain}{url}') or ''
     return url
